@@ -3,6 +3,48 @@ import re
 import warnings
 import pandas as pd
 from bs4 import BeautifulSoup
+from thefuzz import process as thefuzz_process
+from joblib import Parallel, delayed
+from tqdm import tqdm
+
+
+def fuzzy_match(supplier, choices):
+    return thefuzz_process.extract(supplier, choices=choices, limit=5)
+
+
+def make_matches(input_1, input_2, match_type):
+    suppliers = input_1.tolist()
+    choices = input_2.tolist()
+    results = Parallel(n_jobs=-8)(
+        delayed(fuzzy_match)(suppliers, choices) for supplier in tqdm(suppliers)
+    )
+    columns = [
+        "best_" + match_type + "_match_1", "best_" + match_type + "_match_1_score",
+        "best_" + match_type + "_match_2", "best_" + match_type + "_match_2_score",
+        "best_" + match_type + "_match_3", "best_" + match_type + "_match_3_score",
+        "best_" + match_type + "_match_4", "best_" + match_type + "_match_4_score",
+        "best_" + match_type + "_match_5", "best_" + match_type + "_match_5_score"
+    ]
+    rows = []
+    for match_list in results:
+        row = []
+        for match, score in match_list:
+            row.extend([match, score])
+        rows.append(row)
+    return pd.DataFrame(rows, columns=columns)
+
+
+
+def process_dates(date_string):
+    date_string = date_string.strip("[]").replace("'", "")
+    dates = pd.to_datetime([d.strip() for d in date_string.split(',')], format="%d-%m-%Y", errors='coerce')
+    dates = dates.dropna()
+    if len(dates) > 1:
+        return f"{dates.min().strftime('%d-%m-%Y')}-{dates.max().strftime('%d-%m-%Y')}"
+    elif len(dates) == 1:
+        return dates[0].strftime('%d-%m-%Y')
+    else:
+        return ""
 
 
 def unique_agg(series):
@@ -130,6 +172,7 @@ def process_supplier_name(supplier_name):
 
 
 def normaliser(supplier_name):
+    supplier_name = supplier_name.upper().replace('`S', "'S")
     for original, replacer in {"ST.": "ST ",
                                "ASSOC.": "ASSOC ",
                                "..": " ",
